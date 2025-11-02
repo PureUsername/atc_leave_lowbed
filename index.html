@@ -12,6 +12,14 @@
     .chip-full{ @apply bg-red-100 text-red-700; }
     .chip-ok{ @apply bg-green-100 text-green-700; }
     .chip-mid{ @apply bg-amber-100 text-amber-700; }
+    .calendar-shot img,
+    .calendar-shot svg{
+      width: 100%;
+      height: auto;
+      max-height: 420px;
+      display: block;
+      object-fit: contain;
+    }
   </style>
 </head>
 <body class="bg-slate-50 text-slate-800">
@@ -156,6 +164,31 @@
   const fmt = d => d.toISOString().slice(0,10);
   const isoToMonth = d => d.slice(0,7);
   const addDays = (d, n) => { const x=new Date(d); x.setDate(x.getDate()+n); return x; };
+  const monthKeyInTz = (date = new Date(), timeZone = 'Asia/Kuala_Lumpur') => {
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit' }).formatToParts(date);
+    const year = parts.find(p => p.type === 'year')?.value;
+    const month = parts.find(p => p.type === 'month')?.value;
+    if(year && month){
+      return `${year}-${month}`;
+    }
+    return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`;
+  };
+  const addMonthsToMonthKey = (monthIso, offset) => {
+    const [yStr, mStr] = monthIso.split('-');
+    const year = Number(yStr);
+    const monthIndex = Number(mStr) - 1;
+    const totalMonths = year * 12 + monthIndex + offset;
+    const newYear = Math.floor(totalMonths / 12);
+    const newMonthIndex = ((totalMonths % 12) + 12) % 12;
+    return `${newYear}-${String(newMonthIndex + 1).padStart(2, '0')}`;
+  };
+  const formatMonthLabel = (monthIso) => {
+    const [yStr, mStr] = monthIso.split('-');
+    const year = Number(yStr);
+    const month = Number(mStr);
+    const date = new Date(year, month - 1, 1);
+    return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  };
 
   function toast(msg, kind='info'){
     const el = document.createElement('div');
@@ -373,34 +406,48 @@
 
   async function afterApplied(dates){
     try{
-      // Show calendar screenshots for current and next month if any events exist
-      const months = Array.from(new Set(dates.map(isoToMonth)));
-      const baseMonth = months[0] || isoToMonth(fmt(new Date()));
-      const m1 = baseMonth;
-      const dt = new Date(m1+'-01');
-      const m2 = fmt(addDays(new Date(dt.getFullYear(), dt.getMonth()+1, 1),0)).slice(0,7);
-
+      // Always include current and next month snapshots; append months touched by the new request
       const grid = qs('#shotsGrid');
       grid.innerHTML = '';
+      const uniqueMonths = new Set();
+      const currentMonthKey = monthKeyInTz();
+      uniqueMonths.add(currentMonthKey);
+      const nextMonthKey = addMonthsToMonthKey(currentMonthKey, 1);
+      uniqueMonths.add(nextMonthKey);
+      dates.map(isoToMonth).forEach(m => {
+        if(m){
+          uniqueMonths.add(m);
+        }
+      });
+      const baseOrder = [currentMonthKey, nextMonthKey];
+      const extras = Array.from(uniqueMonths).filter(m => !baseOrder.includes(m)).sort();
+      const monthsToShow = [...baseOrder, ...extras].filter((m, idx, arr) => arr.indexOf(m) === idx);
       let hasSnapshot = false;
-      for(const m of [m1, m2]){
+      for(const m of monthsToShow){
         try{
           const data = await apiGet('calendar_screenshot', { month: m });
           if(data && data.ok){
             const wrap = document.createElement('div');
-            wrap.className = 'space-y-2';
-            wrap.innerHTML = `<div class="font-semibold">${m}</div>`;
+            wrap.className = 'space-y-2 calendar-shot';
+            wrap.innerHTML = `<div class="font-semibold">${formatMonthLabel(m)}</div>`;
             if(data.svgDataUrl){
               const img = document.createElement('img');
-              img.className = 'border rounded';
-              img.alt = `calendar ${m}`;
+              img.className = 'border rounded shadow-sm';
+              img.alt = `calendar ${formatMonthLabel(m)}`;
               img.src = data.svgDataUrl;
+              img.loading = 'lazy';
               wrap.appendChild(img);
               hasSnapshot = true;
             } else if (data.svg){
               const container = document.createElement('div');
               container.className = 'border rounded overflow-hidden';
               container.innerHTML = data.svg;
+              const svgEl = container.querySelector('svg');
+              if(svgEl){
+                svgEl.removeAttribute('width');
+                svgEl.removeAttribute('height');
+                svgEl.setAttribute('preserveAspectRatio','xMidYMid meet');
+              }
               wrap.appendChild(container);
               hasSnapshot = true;
             } else {
@@ -414,8 +461,8 @@
         }catch(err){
           console.error(`Failed to load calendar for ${m}`, err);
           const wrap = document.createElement('div');
-          wrap.className = 'space-y-2';
-          wrap.innerHTML = `<div class="font-semibold">${m}</div><div class="text-sm text-red-600">Failed to load: ${err.message}</div>`;
+          wrap.className = 'space-y-2 calendar-shot';
+          wrap.innerHTML = `<div class="font-semibold">${formatMonthLabel(m)}</div><div class="text-sm text-red-600">Failed to load: ${err.message}</div>`;
           grid.appendChild(wrap);
         }
       }
