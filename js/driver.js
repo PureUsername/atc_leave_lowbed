@@ -6,7 +6,7 @@ const state = {
   selected: { start: null, end: null },
   hasFullDay: false,
   pendingForceStart: null,
-  maxPerDay: 3,
+  maxPerDay: 3, 
 };
 
 const driverSelect = qs("#driverSelect");
