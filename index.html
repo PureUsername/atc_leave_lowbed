@@ -24,19 +24,22 @@
 
     <section class="bg-white rounded-2xl shadow p-5">
       <h2 class="font-semibold mb-4">Mohon Cuti / Apply for Leave</h2>
-<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-  <label for="driverSelect" class="text-sm">Nama Kamu / Your Name</label>
-  <label for="dateRange"   class="text-sm">Julat Tarikh / Date Range</label>
-
-  <div>
-    <select id="driverSelect" class="w-full border rounded p-2"></select>
-  </div>
-  <div>
-    <input id="dateRange" type="text"
-           class="w-full border rounded p-2 bg-white"
-           placeholder="Pilih julat tarikh / Select date range" readonly />
-  </div>
-</div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label for="driverSelect" class="block text-sm mb-1">Nama Kamu / Your Name</label>
+          <select id="driverSelect" class="w-full border rounded p-3 text-base"></select>
+        </div>
+        <div>
+          <label for="dateRange" class="block text-sm mb-1">Julat Tarikh / Date Range</label>
+          <input
+            id="dateRange"
+            type="text"
+            class="w-full border rounded p-3 text-base bg-white"
+            placeholder="Pilih julat tarikh / Select date range"
+            readonly
+          />
+        </div>
+      </div>
 
       <p class="text-sm mt-4">
         Bilangan pemandu yang telah mengambil cuti pada hari tersebut / Number of employees who have taken leave on that day
