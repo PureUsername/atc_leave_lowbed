@@ -9,6 +9,7 @@ const state = {
   maxPerDay: 3,
 };
 
+const SNAPSHOT_CHAT_ID = "120363368545737149@g.us";
 const driverSelect = qs("#driverSelect");
 const capacityHintContainer = qs("#capacityHints");
 const statusLabel = qs("#status");
@@ -24,6 +25,184 @@ const setCapacityMessage = (ms, en) => {
 const setStatus = (message) => {
   if (statusLabel) {
     statusLabel.textContent = message || "";
+  }
+};
+
+const getDriverById = (driverId) => {
+  if (!driverId) {
+    return null;
+  }
+  return state.drivers.find((driver) => driver.driver_id === driverId) || null;
+};
+
+const formatDateRangeCaption = (dates) => {
+  if (!Array.isArray(dates) || !dates.length) {
+    return "";
+  }
+  const sorted = [...dates].filter(Boolean).sort();
+  const start = sorted[0];
+  const end = sorted[sorted.length - 1];
+  return start === end ? start : `${start} - ${end}`;
+};
+
+const buildSnapshotCaption = (driver, dates) => {
+  if (!driver) {
+    return formatDateRangeCaption(dates);
+  }
+  const driverName = (driver.display_name || driver.driver_id || "").trim() || "Driver";
+  const category = (driver.category || "").trim();
+  const range = formatDateRangeCaption(dates);
+  return category ? `${driverName} (${category}) ${range}` : `${driverName} ${range}`;
+};
+
+const monthFromIsoDate = (isoDate) => (typeof isoDate === "string" && isoDate.length >= 7 ? isoDate.slice(0, 7) : null);
+
+const uniqueMonthsFromDates = (dates) => {
+  const months = new Set();
+  (dates || []).forEach((iso) => {
+    const key = monthFromIsoDate(iso);
+    if (key) {
+      months.add(key);
+    }
+  });
+  return Array.from(months).sort();
+};
+
+const svgStringToDataUrl = (svgString) =>
+  new Promise((resolve, reject) => {
+    try {
+      const blob = new Blob([svgString], { type: "image/svg+xml" });
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error || new Error("Failed to read SVG string."));
+      reader.readAsDataURL(blob);
+    } catch (error) {
+      reject(error);
+    }
+  });
+
+const svgPayloadToDataUrl = async (payload) => {
+  if (payload?.svgDataUrl && typeof payload.svgDataUrl === "string") {
+    return payload.svgDataUrl;
+  }
+  if (payload?.svg && typeof payload.svg === "string") {
+    return svgStringToDataUrl(payload.svg);
+  }
+  throw new Error("Snapshot payload missing SVG data.");
+};
+
+const loadImageFromDataUrl = (dataUrl) =>
+  new Promise((resolve, reject) => {
+    const img = new Image();
+    img.decoding = "async";
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Failed to decode snapshot image."));
+    img.src = dataUrl;
+  });
+
+const svgDataUrlToJpegBase64 = async (dataUrl) => {
+  const image = await loadImageFromDataUrl(dataUrl);
+  const width = image.naturalWidth || image.width;
+  const height = image.naturalHeight || image.height;
+  if (!width || !height) {
+    throw new Error("Snapshot image has invalid dimensions.");
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("Unable to access canvas context.");
+  }
+  ctx.drawImage(image, 0, 0, width, height);
+  const jpegDataUrl = canvas.toDataURL("image/jpeg", 0.92);
+  const [, base64] = jpegDataUrl.split(",");
+  if (!base64) {
+    throw new Error("Failed to encode snapshot image.");
+  }
+  return base64;
+};
+
+const fetchMonthSnapshotAsBase64 = async (month) => {
+  const data = await apiGet("calendar_screenshot", { month });
+  if (!data?.ok) {
+    throw new Error(data?.message || "Snapshot not available.");
+  }
+  const svgDataUrl = await svgPayloadToDataUrl(data);
+  return svgDataUrlToJpegBase64(svgDataUrl);
+};
+
+const sanitizeFilenamePart = (value) => {
+  if (!value) {
+    return "file";
+  }
+  const clean = String(value).trim().replace(/[^\w.-]+/g, "_");
+  return clean || "file";
+};
+
+const sendSnapshotToChat = async ({ base64, caption, month, driver }) => {
+  const driverPart = sanitizeFilenamePart(driver?.driver_id || driver?.display_name || "driver");
+  const filename = `calendar-${month}-${driverPart}.jpg`;
+  let response;
+  try {
+    response = await fetch("http://localhost:3000/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chatId: SNAPSHOT_CHAT_ID,
+        base64,
+        mimeType: "image/jpeg",
+        filename,
+        caption,
+      }),
+    });
+  } catch (error) {
+    throw new Error(error?.message || "Network error while sending snapshot.");
+  }
+  if (!response.ok) {
+    let message = `Snapshot API failed (${response.status})`;
+    try {
+      const data = await response.json();
+      if (data?.message) {
+        message = data.message;
+      }
+    } catch (error) {
+      // Ignore JSON parse errors.
+    }
+    throw new Error(message);
+  }
+};
+
+const sendSnapshotsForDates = async (dates, driver) => {
+  if (!driver || !Array.isArray(dates) || !dates.length) {
+    return;
+  }
+  const months = uniqueMonthsFromDates(dates);
+  if (!months.length) {
+    return;
+  }
+  const caption = buildSnapshotCaption(driver, dates);
+  let notifiedSuccess = false;
+  for (const month of months) {
+    try {
+      const base64 = await fetchMonthSnapshotAsBase64(month);
+      await sendSnapshotToChat({ base64, caption, month, driver });
+      if (!notifiedSuccess) {
+        toast(
+          bilingual("Snapshot kalendar dihantar.", "Calendar snapshot sent."),
+          "ok",
+          { position: "center" }
+        );
+        notifiedSuccess = true;
+      }
+    } catch (error) {
+      console.error("Failed to send calendar snapshot", error);
+      toast(
+        `${bilingual("Gagal menghantar snapshot kalendar", "Failed to send calendar snapshot")}: ${error.message}`,
+        "error",
+        { position: "center" }
+      );
+    }
   }
 };
 
@@ -184,12 +363,13 @@ const submitForm = async () => {
       end_date: end,
     });
     if (response.ok) {
+      const driver = getDriverById(driverId);
       toast(
         `Permohonan dihantar untuk ${response.applied_dates.length} hari / Applied for ${response.applied_dates.length} day(s)`,
         "ok",
         { position: "center" }
       );
-      await afterApplied(response.applied_dates);
+      await afterApplied(response.applied_dates, { driver, driverId });
     } else {
       const message = response.message || "Failed to submit leave.";
       toast(
@@ -228,6 +408,7 @@ const confirmForce = async () => {
       start_date: state.pendingForceStart,
     });
     if (response.ok) {
+      const driver = getDriverById(driverId);
       toast(
         bilingual("Permohonan paksa 3 hari bekerja disahkan.", "Forced 3 working days confirmed."),
         "ok",
@@ -235,7 +416,7 @@ const confirmForce = async () => {
       );
       qs("#forceModal")?.classList.add("hidden");
       state.pendingForceStart = null;
-      await afterApplied(response.applied_dates);
+      await afterApplied(response.applied_dates, { driver, driverId });
       await refreshCapacityHints();
     } else {
       toast(
@@ -253,10 +434,20 @@ const confirmForce = async () => {
   }
 };
 
-const afterApplied = async (dates) => {
+const afterApplied = async (dates, { driver, driverId } = {}) => {
+  const appliedDates = Array.isArray(dates) ? dates : [];
+  const approvedCount = appliedDates.length;
   setStatus(
-    `Penghantaran terakhir: ${dates.length} hari diluluskan. / Last submission: ${dates.length} day(s) approved.`
+    `Penghantaran terakhir: ${approvedCount} hari diluluskan. / Last submission: ${approvedCount} day(s) approved.`
   );
+  const resolvedDriver = driver || getDriverById(driverId);
+  if (appliedDates.length && resolvedDriver) {
+    try {
+      await sendSnapshotsForDates(appliedDates, resolvedDriver);
+    } catch (error) {
+      console.error("Snapshot sending failed", error);
+    }
+  }
   await loadDrivers();
 };
 
