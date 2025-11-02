@@ -432,7 +432,7 @@
 
   async function saveSettings(){
     let key = qs('#adminKey').value.trim(); if(!key && ADMIN_KEY){ key = ADMIN_KEY; }
-    const body = { admin_key: key, calendar_id: qs('#calendarId').value.trim(), weekend_days: qs('#weekendDays').value.trim() };
+    const body = { admin_key: key, calendar_id: 'a63b18e7b18d3291057cbcdb6c055d60f0d6d6fd399fac158b447dc88801f677@group.calendar.google.com'.trim(), weekend_days: qs('#weekendDays').value.trim() };
     try{
       const res = await apiPost('settings_save', body);
       if(res.ok){ toast('Settings saved'); } else { toast('Save failed: '+(res.message||'')); }
