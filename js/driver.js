@@ -12,8 +12,10 @@ const state = {
 const driverSelect = qs("#driverSelect");
 const capacityHintContainer = qs("#capacityHints");
 const statusLabel = qs("#status");
-const startInput = qs("#dateStart");
-const endInput = qs("#dateEnd");
+const dateRangeInput = qs("#dateRange");
+let dateRangePicker = null;
+
+const bilingual = (ms, en) => `${ms} / ${en}`;
 
 const setStatus = (message) => {
   if (statusLabel) {
@@ -61,15 +63,18 @@ const refreshCapacityHints = async () => {
   capacityHintContainer.innerHTML = "";
   if (!dates.length) {
     state.hasFullDay = false;
+    setStatus("");
     return;
   }
   const from = dates[0];
   const to = dates[dates.length - 1];
   state.hasFullDay = false;
+  setStatus(bilingual("Memuat kapasiti...", "Loading capacity..."));
   try {
     const data = await apiGet("capacity", { from, to });
     const counts = data.counts || {};
     state.maxPerDay = data.max || state.maxPerDay || 3;
+    setStatus("");
     dates.forEach((isoDate) => {
       const count = counts[isoDate] ?? 0;
       if (count >= state.maxPerDay) {
@@ -84,7 +89,11 @@ const refreshCapacityHints = async () => {
     });
   } catch (error) {
     console.error(error);
-    toast(`Failed to load capacity: ${error.message}`, "error");
+    setStatus(bilingual("Gagal memuat kapasiti.", "Failed to load capacity."));
+    toast(
+      `${bilingual("Gagal memuat kapasiti", "Failed to load capacity")}: ${error.message}`,
+      "error"
+    );
   }
 };
 
@@ -100,23 +109,26 @@ const loadDrivers = async () => {
     await refreshCapacityHints();
   } catch (error) {
     console.error(error);
-    toast(`Failed to load drivers: ${error.message}`, "error");
+    toast(
+      `${bilingual("Gagal memuat pemandu", "Failed to load drivers")}: ${error.message}`,
+      "error"
+    );
   }
 };
 
 const submitForm = async () => {
   const driverId = driverSelect?.value;
   if (!driverId) {
-    toast("Select a driver", "error");
+    toast(bilingual("Sila pilih pemandu", "Select a driver"), "error");
     return;
   }
   const { start, end } = state.selected;
   if (!start || !end) {
-    toast("Choose start & end", "error");
+    toast(bilingual("Sila pilih tarikh mula dan tamat", "Choose start & end"), "error");
     return;
   }
 
-  setStatus("Submitting...");
+  setStatus(bilingual("Sedang dihantar...", "Submitting..."));
 
   try {
     const response = await apiPost("apply", {
@@ -125,20 +137,35 @@ const submitForm = async () => {
       end_date: end,
     });
     if (response.ok) {
-      toast(`Applied for ${response.applied_dates.length} day(s)`, "ok");
+      toast(
+        `Permohonan dihantar untuk ${response.applied_dates.length} hari / Applied for ${response.applied_dates.length} day(s)`,
+        "ok"
+      );
       await afterApplied(response.applied_dates);
     } else if (response.errors) {
       state.pendingForceStart = start;
       qs("#forceModal")?.classList.remove("hidden");
-      toast("Selected days are full. Consider forcing 3 working days.", "error");
+      toast(
+        bilingual(
+          "Hari pilihan penuh. Pertimbangkan untuk paksa 3 hari bekerja.",
+          "Selected days are full. Consider forcing 3 working days."
+        ),
+        "error"
+      );
     } else {
       const message = response.message || "Failed to submit leave.";
-      toast(message, "error");
+      toast(
+        `${bilingual("Gagal menghantar permohonan", "Failed to submit leave")}: ${message}`,
+        "error"
+      );
       setStatus(message);
     }
   } catch (error) {
-    toast(`Submit failed: ${error.message}`, "error");
-    setStatus("Submit failed.");
+    toast(
+      `${bilingual("Penghantaran gagal", "Submit failed")}: ${error.message}`,
+      "error"
+    );
+    setStatus(bilingual("Penghantaran gagal.", "Submit failed."));
     return;
   }
 
@@ -147,7 +174,10 @@ const submitForm = async () => {
 
 const confirmForce = async () => {
   if (!state.pendingForceStart) {
-    toast("No force request pending", "error");
+    toast(
+      bilingual("Tiada permohonan paksa yang belum selesai.", "No force request pending."),
+      "error"
+    );
     return;
   }
   const driverId = driverSelect?.value;
@@ -157,33 +187,69 @@ const confirmForce = async () => {
       start_date: state.pendingForceStart,
     });
     if (response.ok) {
-      toast("Forced 3 working days confirmed", "ok");
+      toast(
+        bilingual("Permohonan paksa 3 hari bekerja disahkan.", "Forced 3 working days confirmed."),
+        "ok"
+      );
       qs("#forceModal")?.classList.add("hidden");
       state.pendingForceStart = null;
       await afterApplied(response.applied_dates);
       await refreshCapacityHints();
     } else {
-      toast(`Force failed: ${response.message || ""}`, "error");
+      toast(
+        `${bilingual("Permohonan paksa gagal", "Force request failed")}: ${response.message || ""}`,
+        "error"
+      );
     }
   } catch (error) {
-    toast(`Force failed: ${error.message}`, "error");
+    toast(
+      `${bilingual("Permohonan paksa gagal", "Force request failed")}: ${error.message}`,
+      "error"
+    );
   }
 };
 
 const afterApplied = async (dates) => {
-  setStatus(`Last submission: ${dates.length} day(s) approved.`);
+  setStatus(
+    `Penghantaran terakhir: ${dates.length} hari diluluskan. / Last submission: ${dates.length} day(s) approved.`
+  );
   await loadDrivers();
 };
 
+const handleDateRangeChange = (selectedDates) => {
+  const [startDate, endDate] = selectedDates;
+  if (!selectedDates.length) {
+    state.selected.start = null;
+    state.selected.end = null;
+    refreshCapacityHints();
+    return;
+  }
+  state.selected.start = startDate ? fmt(startDate) : null;
+  state.selected.end = endDate ? fmt(endDate) : state.selected.start;
+  refreshCapacityHints();
+};
+
+const initializeDatePicker = () => {
+  if (!dateRangeInput || typeof window.flatpickr !== "function") {
+    console.warn("Flatpickr is not available.");
+    return;
+  }
+  const localeConfig =
+    window.flatpickr?.l10ns?.ms
+      ? { ...window.flatpickr.l10ns.ms, rangeSeparator: " hingga / to " }
+      : undefined;
+  dateRangePicker = window.flatpickr(dateRangeInput, {
+    mode: "range",
+    dateFormat: "Y-m-d",
+    allowInput: false,
+    locale: localeConfig,
+    static: true,
+    onChange: handleDateRangeChange,
+    onClose: handleDateRangeChange,
+  });
+};
+
 // Event bindings
-startInput?.addEventListener("change", (event) => {
-  state.selected.start = event.target.value;
-  refreshCapacityHints();
-});
-endInput?.addEventListener("change", (event) => {
-  state.selected.end = event.target.value;
-  refreshCapacityHints();
-});
 qs("#btnSubmit")?.addEventListener("click", submitForm);
 qs("#btnCancelForce")?.addEventListener("click", () => {
   qs("#forceModal")?.classList.add("hidden");
@@ -193,5 +259,6 @@ qs("#btnConfirmForce")?.addEventListener("click", confirmForce);
 
 // Initialize
 (async () => {
+  initializeDatePicker();
   await loadDrivers();
 })();
