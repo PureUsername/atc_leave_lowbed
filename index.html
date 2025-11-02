@@ -12,6 +12,15 @@
     .chip-full{ @apply bg-red-100 text-red-700; }
     .chip-ok{ @apply bg-green-100 text-green-700; }
     .chip-mid{ @apply bg-amber-100 text-amber-700; }
+    .flatpickr-wrapper {
+      display: flex;
+      width: 100%;
+      flex: 1 1 auto;
+    }
+    .flatpickr-wrapper .flatpickr-input {
+      flex: 1 1 auto;
+      width: 100%;
+    }
     #dateRange,
     #dateRange.flatpickr-input,
     input#dateRange.flatpickr-input[readonly] { 
