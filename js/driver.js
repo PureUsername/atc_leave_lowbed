@@ -214,7 +214,7 @@ const buildNotificationChatBodyZh = (notification = {}) => {
   const lines = [];
   if (capacityIssue) {
     lines.push(
-      `因当天请假人数已达上限（3人），新的请假申请将改至 ${dateRangeLabel || "所选日期"}`
+      `因当天请假人数已达上限（3人），新的请假申请将改至 ${dateRangeLabel || "所选日期"}:`
     );
   } else if (dateRangeLabel) {
     lines.push(`新的请假申请：${dateRangeLabel}`);
@@ -237,7 +237,7 @@ const buildNotificationChatBodyZh = (notification = {}) => {
     lines.push("");
     lines.push("司机已请假日期:");
     summaryEntries.forEach(([date, names], index) => {
-      const safeDate = typeof date === "string" ? date.trim() : "";
+      const safeDate = typeof date === "string" ? date.trim() + ":" : "";
       lines.push(safeDate);
       if (Array.isArray(names) && names.length) {
         names.forEach((descriptor) => {
