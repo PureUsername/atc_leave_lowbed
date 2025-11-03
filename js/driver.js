@@ -496,7 +496,8 @@ const submitForm = async () => {
       const errors = Array.isArray(response.errors) ? response.errors : [];
       const fullError = errors.find((err) => err?.reason === "full");
       if (fullError || response.reason === "full") {
-        state.pendingForceStart = state.selected.start || fullError?.date || null;
+        // Prioritize the error date if available, otherwise use the selected start date
+        state.pendingForceStart = fullError?.date || state.selected.start || null;
         state.pendingForceDriverId = driverId;
         state.pendingForceNotification = response.notification || null;
         if (state.pendingForceStart) {
