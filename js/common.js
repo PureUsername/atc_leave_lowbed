@@ -121,6 +121,7 @@ const normalizeDriver = (driver) => ({
   driver_id: driver.driver_id || driver.driverId || "",
   display_name: driver.display_name || driver.displayName || "",
   category: driver.category || "trailer",
+  phone_number: driver.phone_number || driver.phoneNumber || "",
   active: driver.active !== false,
   updated_at: driver.updated_at || driver.updatedAt || null,
 });
