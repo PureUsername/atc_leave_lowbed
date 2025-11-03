@@ -17,6 +17,8 @@ const capacityHintContainer = qs("#capacityHints");
 const statusLabel = qs("#status");
 const dateRangeInput = qs("#dateRange");
 const forceModal = qs("#forceModal");
+const calendarUpdateMode =
+  document.querySelector("[data-calendar-update-mode]")?.dataset?.calendarUpdateMode || "after_approval";
 let dateRangePicker = null;
 
 const bilingual = (ms, en) => `${ms} / ${en}`;
@@ -96,32 +98,44 @@ const toWhatsappJid = (value) => {
   return `${normalized}@c.us`;
 };
 
+const buildSnapshotAttachment = async (dates = [], driver = null) => {
+  if (!Array.isArray(dates) || !dates.length || !driver) {
+    return null;
+  }
+  const months = uniqueMonthsFromDates(dates);
+  if (!months.length) {
+    return null;
+  }
+  const snapshotMonth = months[0];
+  try {
+    const base64Image = await fetchMonthSnapshotAsBase64(snapshotMonth);
+    const driverPart = sanitizeFilenamePart(driver?.driver_id || driver?.display_name || "driver");
+    const imageFilename = `calendar-${snapshotMonth}-${driverPart}.jpg`;
+    return { base64Image, imageFilename, snapshotMonth };
+  } catch (error) {
+    console.error("Failed to get calendar snapshot for notification", error);
+    return null;
+  }
+};
+
 const sendLeaveNotificationWithSnapshot = async (notification = {}, dates = [], driver = null) => {
   if (!notification.message) {
     return;
   }
-  
-  // Get calendar snapshot base64 if dates are provided
-  let base64Image = null;
-  let imageFilename = null;
-  let snapshotMonth = null;
-  
-  if (dates && dates.length > 0 && driver) {
-    const months = uniqueMonthsFromDates(dates);
-    if (months.length > 0) {
-      try {
-        // Get the first month's snapshot (usually most relevant)
-        snapshotMonth = months[0];
-        base64Image = await fetchMonthSnapshotAsBase64(snapshotMonth);
-        const driverPart = sanitizeFilenamePart(driver?.driver_id || driver?.display_name || "driver");
-        imageFilename = `calendar-${snapshotMonth}-${driverPart}.jpg`;
-      } catch (error) {
-        console.error("Failed to get calendar snapshot for notification", error);
-        // Continue without image if it fails
-      }
+
+  const attachment = await buildSnapshotAttachment(dates, driver);
+  const base64Image = attachment?.base64Image || null;
+  const imageFilename = attachment?.imageFilename || null;
+  const snapshotMonth = attachment?.snapshotMonth || null;
+
+  if (base64Image) {
+    notification.base64 = base64Image;
+    notification.mimeType = "image/jpeg";
+    if (imageFilename) {
+      notification.filename = imageFilename;
     }
   }
-  
+
   const buttonActionSource =
     notification.button_actions && typeof notification.button_actions === "object"
       ? notification.button_actions
@@ -170,7 +184,7 @@ const sendLeaveNotificationWithSnapshot = async (notification = {}, dates = [], 
     notification.metadata.snapshot_filename = imageFilename;
   }
   if (!notification.metadata.calendar_update_mode) {
-    notification.metadata.calendar_update_mode = "after_approval";
+    notification.metadata.calendar_update_mode = calendarUpdateMode;
   }
 
   const metadataSource =
@@ -202,7 +216,7 @@ const sendLeaveNotificationWithSnapshot = async (notification = {}, dates = [], 
     metadata.snapshot_attached = "true";
   }
   if (!metadata.calendar_update_mode) {
-    metadata.calendar_update_mode = "after_approval";
+    metadata.calendar_update_mode = calendarUpdateMode;
   }
 
   const payload = {
