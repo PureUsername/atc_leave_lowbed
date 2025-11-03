@@ -265,19 +265,6 @@ const sendLeaveNotificationWithSnapshot = async (notification = {}, dates = [], 
     return;
   }
 
-  const attachment = await buildSnapshotAttachment(dates, driver);
-  const base64Image = attachment?.base64Image || null;
-  const imageFilename = attachment?.imageFilename || null;
-  const snapshotMonth = attachment?.snapshotMonth || null;
-
-  if (base64Image) {
-    notification.base64 = base64Image;
-    notification.mimeType = "image/jpeg";
-    if (imageFilename) {
-      notification.filename = imageFilename;
-    }
-  }
-
   const buttonActionSource =
     notification.button_actions && typeof notification.button_actions === "object"
       ? notification.button_actions
@@ -319,12 +306,6 @@ const sendLeaveNotificationWithSnapshot = async (notification = {}, dates = [], 
   if (!notification.metadata || typeof notification.metadata !== "object") {
     notification.metadata = {};
   }
-  if (snapshotMonth && !notification.metadata.snapshot_month) {
-    notification.metadata.snapshot_month = snapshotMonth;
-  }
-  if (imageFilename && !notification.metadata.snapshot_filename) {
-    notification.metadata.snapshot_filename = imageFilename;
-  }
   if (!notification.metadata.calendar_update_mode) {
     notification.metadata.calendar_update_mode = calendarUpdateMode;
   }
@@ -348,15 +329,6 @@ const sendLeaveNotificationWithSnapshot = async (notification = {}, dates = [], 
   if (!metadata.request_id && notification.request_id) {
     metadata.request_id = String(notification.request_id);
   }
-  if (snapshotMonth && !metadata.snapshot_month) {
-    metadata.snapshot_month = snapshotMonth;
-  }
-  if (imageFilename && !metadata.snapshot_filename) {
-    metadata.snapshot_filename = imageFilename;
-  }
-  if (base64Image && !metadata.snapshot_attached) {
-    metadata.snapshot_attached = "true";
-  }
   if (!metadata.calendar_update_mode) {
     metadata.calendar_update_mode = calendarUpdateMode;
   }
@@ -364,24 +336,9 @@ const sendLeaveNotificationWithSnapshot = async (notification = {}, dates = [], 
   const approvalBody = buildApprovalChatBody(notification) || notification.message;
   const approvalPayload = {
     chatId: APPROVAL_CHAT_ID,
-    type: "buttons",
-    body: approvalBody,
-    buttons,
-    title: notification.title || bilingual("Status Permohonan Cuti", "Leave Request Status"),
-    footer:
-      notification.footer ||
-      bilingual("Tekan butang untuk maklumkan keputusan.", "Tap a button to share your decision."),
-    metadata,
+    content: approvalBody,
+    type: "text",
   };
-
-  if (base64Image) {
-    approvalPayload.base64 = base64Image;
-    approvalPayload.mimeType = "image/jpeg";
-    if (imageFilename) {
-      approvalPayload.filename = imageFilename;
-    }
-  }
-
   if (mentionNumbers.length) {
     approvalPayload.mentionNumbers = mentionNumbers;
   }
@@ -389,20 +346,40 @@ const sendLeaveNotificationWithSnapshot = async (notification = {}, dates = [], 
     approvalPayload.mentions = mentionJids;
   }
 
-  const notificationBodyZh = buildNotificationChatBodyZh(notification);
-  const chineseNotificationPayload = notificationBodyZh
-    ? {
-        chatId: NOTIFICATION_CHAT_ID,
-        content: notificationBodyZh,
-        type: "text",
-      }
-    : null;
+  const notificationBodyZh = buildNotificationChatBodyZh(notification) || approvalBody;
+  const zhButtons = buttons.map((btn) => {
+    const id = btn.id;
+    if (!id) {
+      return btn;
+    }
+    if (id.includes(":approve:")) {
+      return { body: "批准", id };
+    }
+    if (id.includes(":reject:")) {
+      return { body: "拒绝", id };
+    }
+    return btn;
+  });
+
+  const chineseApprovalPayload = {
+    chatId: NOTIFICATION_CHAT_ID,
+    type: "buttons",
+    body: notificationBodyZh,
+    buttons: zhButtons,
+    title: "请假审批状态",
+    footer: "请选择按钮以更新决定。",
+    metadata,
+  };
+  if (mentionNumbers.length) {
+    chineseApprovalPayload.mentionNumbers = mentionNumbers;
+  }
+  if (mentionJids.length) {
+    chineseApprovalPayload.mentions = mentionJids;
+  }
 
   try {
+    await apiPost("whatsapp_send", chineseApprovalPayload);
     await apiPost("whatsapp_send", approvalPayload);
-    if (chineseNotificationPayload) {
-      await apiPost("whatsapp_send", chineseNotificationPayload);
-    }
   } catch (error) {
     console.error("Failed to send leave notification", error);
     toast(
