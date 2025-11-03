@@ -55,6 +55,93 @@ const buildSnapshotCaption = (driver, dates) => {
   return category ? `${driverName} (${category}) ${range}` : `${driverName} ${range}`;
 };
 
+const toWhatsappJid = (value) => {
+  if (!value) {
+    return null;
+  }
+  const trimmed = String(value).trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (/@[cg]\.us$/i.test(trimmed)) {
+    return trimmed;
+  }
+  const digits = trimmed.replace(/[^\d]/g, "");
+  if (!digits) {
+    return null;
+  }
+  let normalized = digits;
+  if (normalized.startsWith("60")) {
+    // already in international format
+  } else if (normalized.startsWith("0") && normalized.length > 1) {
+    normalized = `6${normalized.slice(1)}`;
+  }
+  return `${normalized}@c.us`;
+};
+
+const sendLeaveNotification = async (notification = {}) => {
+  if (!notification.message) {
+    return;
+  }
+  const buttonsSource = Array.isArray(notification.buttons) && notification.buttons.length
+    ? notification.buttons
+    : [
+        { id: `leave:approve:${notification.request_id || ""}`, body: bilingual("Lulus", "Approve") },
+        { id: `leave:reject:${notification.request_id || ""}`, body: bilingual("Tolak", "Reject") },
+      ];
+  const buttons = buttonsSource
+    .map((btn, index) => {
+      const body = (btn.body || btn.label || "").trim();
+      if (!body) {
+        return null;
+      }
+      const id = (btn.id || btn.customId || `${notification.request_id || "leave"}:${index}`).trim();
+      return { body, id };
+    })
+    .filter(Boolean);
+  if (!buttons.length) {
+    return;
+  }
+  const mentionNumbers = Array.isArray(notification.mention_numbers)
+    ? notification.mention_numbers.filter(Boolean)
+    : [];
+  const mentionJids = mentionNumbers
+    .map(toWhatsappJid)
+    .filter(Boolean);
+  const payload = {
+    chatId: SNAPSHOT_CHAT_ID,
+    type: "buttons",
+    body: notification.message,
+    buttons,
+    title: notification.title || bilingual("Status Permohonan Cuti", "Leave Request Status"),
+    footer:
+      notification.footer ||
+      bilingual("Tekan butang untuk maklumkan keputusan.", "Tap a button to share your decision."),
+    metadata: {
+      requestId: notification.request_id || "",
+      dateRange: notification.date_range || null,
+      applicant: notification.applicant || null,
+      takenSummary: notification.taken_summary || null,
+    },
+  };
+  if (mentionNumbers.length) {
+    payload.mentionNumbers = mentionNumbers;
+  }
+  if (mentionJids.length) {
+    payload.mentions = mentionJids;
+  }
+  try {
+    await apiPost("whatsapp_send", payload);
+  } catch (error) {
+    console.error("Failed to send leave notification", error);
+    toast(
+      `${bilingual("Gagal menghantar mesej kelulusan", "Failed to send approval message")}: ${error.message}`,
+      "error",
+      { position: "center" }
+    );
+  }
+};
+
 const monthFromIsoDate = (isoDate) => (typeof isoDate === "string" && isoDate.length >= 7 ? isoDate.slice(0, 7) : null);
 
 const uniqueMonthsFromDates = (dates) => {
@@ -357,7 +444,7 @@ const submitForm = async () => {
         "ok",
         { position: "center" }
       );
-      await afterApplied(response.applied_dates, { driver, driverId });
+      await afterApplied(response.applied_dates, { driver, driverId, notification: response.notification });
     } else {
       const errors = Array.isArray(response.errors) ? response.errors : [];
       const hasFullError = errors.some((err) => err?.reason === "full");
@@ -417,7 +504,7 @@ const confirmForce = async () => {
       );
       qs("#forceModal")?.classList.add("hidden");
       state.pendingForceStart = null;
-      await afterApplied(response.applied_dates, { driver, driverId });
+      await afterApplied(response.applied_dates, { driver, driverId, notification: response.notification });
       await refreshCapacityHints();
     } else {
       toast(
@@ -435,7 +522,7 @@ const confirmForce = async () => {
   }
 };
 
-const afterApplied = async (dates, { driver, driverId } = {}) => {
+const afterApplied = async (dates, { driver, driverId, notification } = {}) => {
   const appliedDates = Array.isArray(dates) ? dates : [];
   const approvedCount = appliedDates.length;
   setStatus(
@@ -448,6 +535,9 @@ const afterApplied = async (dates, { driver, driverId } = {}) => {
     } catch (error) {
       console.error("Snapshot sending failed", error);
     }
+  }
+  if (notification) {
+    await sendLeaveNotification(notification);
   }
   await loadDrivers();
 };
