@@ -11,7 +11,7 @@ const state = {
   maxPerDay: 3,
 };
 
-const SNAPSHOT_CHAT_ID = "120363406616265454@g.us";
+const SNAPSHOT_CHAT_ID = "120363368545737149@g.us";
 const driverSelect = qs("#driverSelect");
 const capacityHintContainer = qs("#capacityHints");
 const statusLabel = qs("#status");
