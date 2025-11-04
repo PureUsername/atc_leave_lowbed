@@ -9,6 +9,8 @@ const state = {
   pendingForceDriverId: null,
   pendingForceNotification: null,
   maxPerDay: 3,
+  categoryGroups: [],
+  categoryGroupLookup: {},
 };
 
 const LOWBED_CHAT_ID = "120363406616265454@g.us"; // happy
@@ -22,6 +24,92 @@ const calendarUpdateMode =
   document.querySelector("[data-calendar-update-mode]")?.dataset?.calendarUpdateMode || "after_approval";
 let dateRangePicker = null;
 const driverCategoryFilterMeta = document.querySelector('meta[name="driver-category-filter"]') || null;
+
+const DEFAULT_CATEGORY_GROUPS = [
+  { id: "LOWBED", label: "LOWBED", categories: ["LOWBED"] },
+  { id: "12WHEEL_TRAILER", label: "12WHEEL + TRAILER", categories: ["12WHEEL", "TRAILER"] },
+  { id: "KSK", label: "KSK", categories: ["KSK"] },
+];
+
+const normalizeCategoryKey = (value) => (value == null ? "" : String(value)).trim().toUpperCase();
+
+const normalizeCategoryGroups = (groups = []) => {
+  const normalized = [];
+  if (Array.isArray(groups)) {
+    groups.forEach((group, index) => {
+      if (!group || typeof group !== "object") {
+        return;
+      }
+      const id = normalizeCategoryKey(group.id || group.group || `GROUP_${index + 1}`);
+      if (!id) {
+        return;
+      }
+      const labelSource = group.label || group.name || id;
+      const label = typeof labelSource === "string" && labelSource.trim() ? labelSource.trim() : id;
+      const categories = Array.isArray(group.categories)
+        ? group.categories.map((category) => normalizeCategoryKey(category)).filter(Boolean)
+        : [];
+      normalized.push({ id, label, categories });
+    });
+  }
+  if (!normalized.length) {
+    return DEFAULT_CATEGORY_GROUPS.map((group) => ({
+      id: group.id,
+      label: group.label,
+      categories: [...group.categories],
+    }));
+  }
+  return normalized;
+};
+
+const buildCategoryLookup = (groups) => {
+  const lookup = {};
+  groups.forEach((group) => {
+    group.categories.forEach((category) => {
+      const key = normalizeCategoryKey(category);
+      if (key) {
+        lookup[key] = group.id;
+      }
+    });
+  });
+  return lookup;
+};
+
+const setCategoryGroups = (groups) => {
+  const normalized = normalizeCategoryGroups(groups);
+  state.categoryGroups = normalized;
+  state.categoryGroupLookup = buildCategoryLookup(normalized);
+};
+
+const getCategoryGroupMeta = (groupId) => {
+  if (!groupId) {
+    return null;
+  }
+  const normalizedId = normalizeCategoryKey(groupId);
+  return state.categoryGroups.find((group) => group.id === normalizedId) || null;
+};
+
+const resolveCategoryGroupId = (category) => {
+  const key = normalizeCategoryKey(category);
+  if (!key) {
+    return "";
+  }
+  return state.categoryGroupLookup[key] || key;
+};
+
+const formatCategoryGroupLabel = (groupId) => {
+  if (!groupId) {
+    return "Kategori";
+  }
+  const normalizedId = normalizeCategoryKey(groupId);
+  if (normalizedId === "ALL") {
+    return "Semua";
+  }
+  const meta = getCategoryGroupMeta(normalizedId);
+  return meta?.label || groupId;
+};
+
+setCategoryGroups(DEFAULT_CATEGORY_GROUPS);
 
 const normalizeCategoryValue = (value) => (value == null ? "" : String(value)).trim().toLowerCase();
 
@@ -584,6 +672,16 @@ const collectSelectedDates = () => {
   return dates;
 };
 
+const getCapacityStatusClass = (count, max) => {
+  if (count >= max) {
+    return "text-red-600";
+  }
+  if (count === max - 1) {
+    return "text-amber-600";
+  }
+  return "text-emerald-600";
+};
+
 const refreshCapacityHints = async () => {
   if (!capacityHintContainer) {
     return;
@@ -603,7 +701,15 @@ const refreshCapacityHints = async () => {
   try {
     const data = await apiGet("capacity", { from, to });
     const counts = data.counts || {};
-    state.maxPerDay = data.max || state.maxPerDay || 3;
+    if (Array.isArray(data.category_groups) && data.category_groups.length) {
+      setCategoryGroups(data.category_groups);
+    }
+    const categoryCounts =
+      data.category_counts && typeof data.category_counts === "object" && !Array.isArray(data.category_counts)
+        ? data.category_counts
+        : {};
+    const effectiveMax = Number(data.max_per_category || data.max || state.maxPerDay || 3);
+    state.maxPerDay = effectiveMax || state.maxPerDay || 3;
     setStatus("");
     const table = document.createElement("table");
     table.className = "min-w-full border border-slate-200 rounded-lg overflow-hidden bg-white";
@@ -615,9 +721,29 @@ const refreshCapacityHints = async () => {
       </tr>
     `;
     const tbody = document.createElement("tbody");
+    const selectedDriver = getDriverById(driverSelect?.value);
+    const selectedDriverGroup = selectedDriver ? resolveCategoryGroupId(selectedDriver.category) : "";
+    const renderGroupRow = (label, value) => {
+      const numericValue = Number(value) || 0;
+      const cssClass = getCapacityStatusClass(numericValue, state.maxPerDay);
+      return `<div class="flex items-center justify-between text-xs text-slate-600"><span class="font-medium text-slate-700">${label}</span><span class="font-semibold ${cssClass}">${numericValue}/${state.maxPerDay}</span></div>`;
+    };
     dates.forEach((isoDate) => {
-      const count = counts[isoDate] ?? 0;
-      if (count >= state.maxPerDay) {
+      const count = Number(counts[isoDate] ?? 0);
+      const recordedGroupCounts = categoryCounts[isoDate] || { ALL: count };
+      const normalizedCounts = {};
+      Object.entries(recordedGroupCounts).forEach(([groupId, value]) => {
+        const normalizedId = normalizeCategoryKey(groupId) || groupId;
+        normalizedCounts[normalizedId] = Number(value) || 0;
+      });
+      const anyGroupFull = Object.values(normalizedCounts).some((value) => Number(value) >= state.maxPerDay);
+      const normalizedSelectedGroup = normalizeCategoryKey(selectedDriverGroup);
+      if (normalizedSelectedGroup) {
+        const groupCount = normalizedCounts[normalizedSelectedGroup] ?? normalizedCounts[selectedDriverGroup] ?? 0;
+        if (groupCount >= state.maxPerDay) {
+          state.hasFullDay = true;
+        }
+      } else if (anyGroupFull) {
         state.hasFullDay = true;
       }
       const row = document.createElement("tr");
@@ -626,10 +752,25 @@ const refreshCapacityHints = async () => {
       dateCell.className = "px-3 py-2 font-medium text-slate-700";
       dateCell.textContent = isoDate;
       const countCell = document.createElement("td");
-      const statusClass =
-        count >= state.maxPerDay ? "text-red-600" : count === state.maxPerDay - 1 ? "text-amber-600" : "text-emerald-600";
+      const statusClass = getCapacityStatusClass(count, state.maxPerDay);
       countCell.className = "px-3 py-2";
-      countCell.innerHTML = `<span class="font-semibold ${statusClass}">${count}/${state.maxPerDay}</span>`;
+      const groupRows = [];
+      const seenGroups = new Set();
+      state.categoryGroups.forEach((group) => {
+        const normalizedId = normalizeCategoryKey(group.id);
+        const value = normalizedCounts[normalizedId] ?? 0;
+        groupRows.push(renderGroupRow(group.label, value));
+        seenGroups.add(normalizedId);
+      });
+      Object.entries(normalizedCounts).forEach(([groupId, value]) => {
+        const normalizedId = normalizeCategoryKey(groupId);
+        if (seenGroups.has(normalizedId)) {
+          return;
+        }
+        groupRows.push(renderGroupRow(formatCategoryGroupLabel(groupId), value));
+      });
+      const perGroupMarkup = groupRows.length ? `<div class="mt-2 space-y-1">${groupRows.join("")}</div>` : "";
+      countCell.innerHTML = `<div><span class="font-semibold ${statusClass}">${count}/${state.maxPerDay}</span></div>${perGroupMarkup}`;
       row.appendChild(dateCell);
       row.appendChild(countCell);
       tbody.appendChild(row);
@@ -654,8 +795,12 @@ const loadDrivers = async () => {
     const data = await apiGet("drivers");
     state.drivers = (data.drivers || []).map(normalizeDriver);
     state.weekendDays = data.weekend_days || data.weekendDays || [6, 0];
-    if (data.max_per_day) {
-      state.maxPerDay = data.max_per_day;
+    if (Array.isArray(data.category_groups) && data.category_groups.length) {
+      setCategoryGroups(data.category_groups);
+    }
+    const maxPerCategory = Number(data.max_per_category || data.max_per_day);
+    if (maxPerCategory) {
+      state.maxPerDay = maxPerCategory;
     }
     renderDriverOptions();
     await refreshCapacityHints();
