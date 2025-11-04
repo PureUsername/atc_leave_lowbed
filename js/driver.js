@@ -109,6 +109,31 @@ const formatCategoryGroupLabel = (groupId) => {
   return meta?.label || groupId;
 };
 
+const resolveCategoryGroupFromToken = (token) => {
+  const normalized = normalizeCategoryKey(token);
+  if (!normalized) {
+    return "";
+  }
+  if (state.categoryGroups.some((group) => group.id === normalized)) {
+    return normalized;
+  }
+  return state.categoryGroupLookup[normalized] || "";
+};
+
+const getFilteredCategoryGroup = () => {
+  const filterState = getActiveDriverCategoryFilter();
+  if (!filterState?.hasFilter) {
+    return "";
+  }
+  for (const token of filterState.categories) {
+    const resolved = resolveCategoryGroupFromToken(token);
+    if (resolved) {
+      return resolved;
+    }
+  }
+  return "";
+};
+
 setCategoryGroups(DEFAULT_CATEGORY_GROUPS);
 
 const normalizeCategoryValue = (value) => (value == null ? "" : String(value)).trim().toLowerCase();
@@ -717,17 +742,14 @@ const refreshCapacityHints = async () => {
     thead.innerHTML = `
       <tr class="bg-slate-100 text-left text-slate-700">
         <th class="px-3 py-2 font-semibold">Tarikh</th>
-        <th class="px-3 py-2 font-semibold">Bil. pemandu bercuti (tarikh ini)</th>
+        <th class="px-3 py-2 font-semibold">Bil. pemandu bercuti</th>
       </tr>
     `;
-    const tbody = document.createElement("tbody");
+  const tbody = document.createElement("tbody");
     const selectedDriver = getDriverById(driverSelect?.value);
     const selectedDriverGroup = selectedDriver ? resolveCategoryGroupId(selectedDriver.category) : "";
-    const renderGroupRow = (label, value) => {
-      const numericValue = Number(value) || 0;
-      const cssClass = getCapacityStatusClass(numericValue, state.maxPerDay);
-      return `<div class="flex items-center justify-between text-xs text-slate-600"><span class="font-medium text-slate-700">${label}</span><span class="font-semibold ${cssClass}">${numericValue}/${state.maxPerDay}</span></div>`;
-    };
+    const filteredCategoryGroup = getFilteredCategoryGroup();
+    const activeCategoryGroup = normalizeCategoryKey(selectedDriverGroup || filteredCategoryGroup);
     dates.forEach((isoDate) => {
       const count = Number(counts[isoDate] ?? 0);
       const recordedGroupCounts = categoryCounts[isoDate] || { ALL: count };
@@ -736,14 +758,14 @@ const refreshCapacityHints = async () => {
         const normalizedId = normalizeCategoryKey(groupId) || groupId;
         normalizedCounts[normalizedId] = Number(value) || 0;
       });
-      const anyGroupFull = Object.values(normalizedCounts).some((value) => Number(value) >= state.maxPerDay);
-      const normalizedSelectedGroup = normalizeCategoryKey(selectedDriverGroup);
-      if (normalizedSelectedGroup) {
-        const groupCount = normalizedCounts[normalizedSelectedGroup] ?? normalizedCounts[selectedDriverGroup] ?? 0;
-        if (groupCount >= state.maxPerDay) {
+      const relevantGroupId = activeCategoryGroup;
+      let relevantCount = count;
+      if (relevantGroupId) {
+        relevantCount = normalizedCounts[relevantGroupId] ?? 0;
+        if (relevantCount >= state.maxPerDay) {
           state.hasFullDay = true;
         }
-      } else if (anyGroupFull) {
+      } else if (Object.values(normalizedCounts).some((value) => Number(value) >= state.maxPerDay)) {
         state.hasFullDay = true;
       }
       const row = document.createElement("tr");
@@ -752,25 +774,9 @@ const refreshCapacityHints = async () => {
       dateCell.className = "px-3 py-2 font-medium text-slate-700";
       dateCell.textContent = isoDate;
       const countCell = document.createElement("td");
-      const statusClass = getCapacityStatusClass(count, state.maxPerDay);
+      const statusClass = getCapacityStatusClass(relevantCount, state.maxPerDay);
       countCell.className = "px-3 py-2";
-      const groupRows = [];
-      const seenGroups = new Set();
-      state.categoryGroups.forEach((group) => {
-        const normalizedId = normalizeCategoryKey(group.id);
-        const value = normalizedCounts[normalizedId] ?? 0;
-        groupRows.push(renderGroupRow(group.label, value));
-        seenGroups.add(normalizedId);
-      });
-      Object.entries(normalizedCounts).forEach(([groupId, value]) => {
-        const normalizedId = normalizeCategoryKey(groupId);
-        if (seenGroups.has(normalizedId)) {
-          return;
-        }
-        groupRows.push(renderGroupRow(formatCategoryGroupLabel(groupId), value));
-      });
-      const perGroupMarkup = groupRows.length ? `<div class="mt-2 space-y-1">${groupRows.join("")}</div>` : "";
-      countCell.innerHTML = `<div><span class="font-semibold ${statusClass}">${count}/${state.maxPerDay}</span></div>${perGroupMarkup}`;
+      countCell.innerHTML = `<span class="font-semibold ${statusClass}">${relevantCount}/${state.maxPerDay}</span>`;
       row.appendChild(dateCell);
       row.appendChild(countCell);
       tbody.appendChild(row);
