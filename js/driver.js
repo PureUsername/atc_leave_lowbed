@@ -1,4 +1,16 @@
-import { apiGet, apiPost, addDays, fmt, normalizeDriver, qs, qsa, toast } from "./common.js";
+import {
+  DEFAULT_CATEGORY_CHANNEL_ID,
+  apiGet,
+  apiPost,
+  addDays,
+  buildCalendarEmbedUrl,
+  fmt,
+  getCategoryChannelConfig,
+  normalizeDriver,
+  qs,
+  qsa,
+  toast,
+} from "./common.js";
 
 const state = {
   drivers: [],
@@ -13,13 +25,16 @@ const state = {
   categoryGroupLookup: {},
 };
 
-const LOWBED_CHAT_ID = "120363406616265454@g.us"; // happy
 const ADMIN_CHAT_ID = "120363368545737149@g.us"; // mix
 const driverSelect = qs("#driverSelect");
 const capacityHintContainer = qs("#capacityHints");
 const statusLabel = qs("#status");
 const dateRangeInput = qs("#dateRange");
 const forceModal = qs("#forceModal");
+const driverCalendarSection = qs("#driverCalendarSection");
+const driverCalendarFrame = qs("#driverCalendarFrame");
+const driverCalendarLink = qs("#driverCalendarLink");
+const driverCalendarLabel = qs("#driverCalendarLabel");
 const calendarUpdateMode =
   document.querySelector("[data-calendar-update-mode]")?.dataset?.calendarUpdateMode || "after_approval";
 let dateRangePicker = null;
@@ -120,20 +135,6 @@ const resolveCategoryGroupFromToken = (token) => {
   return state.categoryGroupLookup[normalized] || "";
 };
 
-const getFilteredCategoryGroup = () => {
-  const filterState = getActiveDriverCategoryFilter();
-  if (!filterState?.hasFilter) {
-    return "";
-  }
-  for (const token of filterState.categories) {
-    const resolved = resolveCategoryGroupFromToken(token);
-    if (resolved) {
-      return resolved;
-    }
-  }
-  return "";
-};
-
 setCategoryGroups(DEFAULT_CATEGORY_GROUPS);
 
 const normalizeCategoryValue = (value) => (value == null ? "" : String(value)).trim().toLowerCase();
@@ -179,15 +180,107 @@ const collectHiddenCategoryFilters = () => {
     params.get("driverCategoryFilter") || "",
   ].filter(Boolean);
   tokens.push(...queryValues);
-  return Array.from(new Set(tokens.flatMap(splitCategoryTokens)));
+
+  const normalizedTokens = Array.from(new Set(tokens.flatMap(splitCategoryTokens)));
+  const groupSet = new Set();
+  const categorySet = new Set();
+
+  normalizedTokens.forEach((token) => {
+    const groupId = resolveCategoryGroupFromToken(token);
+    if (groupId) {
+      groupSet.add(groupId);
+      const meta = getCategoryGroupMeta(groupId);
+      meta?.categories?.forEach((category) => {
+        const normalizedCategory = normalizeCategoryValue(category);
+        if (normalizedCategory) {
+          categorySet.add(normalizedCategory);
+        }
+      });
+      return;
+    }
+    categorySet.add(token);
+  });
+
+  return {
+    tokens: normalizedTokens,
+    categories: Array.from(categorySet),
+    groups: Array.from(groupSet),
+  };
 };
 
 const getActiveDriverCategoryFilter = () => {
-  const categories = collectHiddenCategoryFilters();
+  const filters = collectHiddenCategoryFilters();
   return {
-    categories,
-    hasFilter: categories.length > 0,
+    ...filters,
+    hasFilter: (filters.categories?.length || 0) > 0 || (filters.groups?.length || 0) > 0,
   };
+};
+
+const getFilteredCategoryGroup = () => {
+  const filterState = getActiveDriverCategoryFilter();
+  if (!filterState?.hasFilter) {
+    return "";
+  }
+  if (filterState.groups?.length) {
+    return filterState.groups[0];
+  }
+  for (const token of filterState.tokens || []) {
+    const resolved = resolveCategoryGroupFromToken(token);
+    if (resolved) {
+      return resolved;
+    }
+  }
+  return "";
+};
+
+const resolveEffectiveCategoryGroup = (driver = null) => {
+  const filteredGroup = getFilteredCategoryGroup();
+  if (filteredGroup) {
+    return normalizeCategoryKey(filteredGroup);
+  }
+  if (driver) {
+    const driverGroup = resolveCategoryGroupId(driver.category);
+    if (driverGroup) {
+      return normalizeCategoryKey(driverGroup);
+    }
+  }
+  return DEFAULT_CATEGORY_CHANNEL_ID;
+};
+
+const getActiveCategoryChannelConfig = (driver = null) => {
+  const groupId = resolveEffectiveCategoryGroup(driver);
+  return getCategoryChannelConfig(groupId);
+};
+
+const updateDriverCalendarEmbed = (driver = null, options = {}) => {
+  if (!driverCalendarSection || !driverCalendarFrame) {
+    return;
+  }
+  const channelConfig = getActiveCategoryChannelConfig(driver);
+  if (!channelConfig?.calendarId) {
+    driverCalendarSection.classList.add("hidden");
+    return;
+  }
+  const params = options.refresh
+    ? { refreshToken: Date.now() }
+    : {};
+  const src = buildCalendarEmbedUrl(channelConfig.calendarId, params);
+  if (src) {
+    driverCalendarFrame.src = src;
+  }
+  driverCalendarFrame.dataset.calendarId = channelConfig.calendarId;
+  driverCalendarSection.classList.remove("hidden");
+  if (driverCalendarLabel) {
+    driverCalendarLabel.textContent = channelConfig.label ? `Kalendar ${channelConfig.label}` : "Kalendar Google";
+  }
+  if (driverCalendarLink) {
+    if (channelConfig.calendarUrl) {
+      driverCalendarLink.href = channelConfig.calendarUrl;
+      driverCalendarLink.classList.remove("hidden");
+    } else {
+      driverCalendarLink.classList.add("hidden");
+    }
+  }
 };
 
 const driverMatchesActiveFilter = (driver, filterState) => {
@@ -506,9 +599,10 @@ const sendLeaveNotificationWithSnapshot = async (notification = {}, dates = [], 
     metadata.calendar_update_mode = calendarUpdateMode;
   }
 
+  const channelConfig = getActiveCategoryChannelConfig(driver);
   const approvalBody = buildApprovalChatBody(notification) || notification.message;
   const approvalPayload = {
-    chatId: LOWBED_CHAT_ID,
+    chatId: channelConfig.chatId,
     content: approvalBody,
     type: "text",
   };
@@ -680,6 +774,8 @@ const renderDriverOptions = () => {
   } else {
     placeholder.selected = true;
   }
+  const selectedDriver = getDriverById(driverSelect.value);
+  updateDriverCalendarEmbed(selectedDriver);
 };
 
 const collectSelectedDates = () => {
@@ -1009,6 +1105,10 @@ const initializeDatePicker = () => {
 };
 
 // Event bindings
+driverSelect?.addEventListener("change", () => {
+  const driver = getDriverById(driverSelect.value);
+  updateDriverCalendarEmbed(driver);
+});
 qs("#btnSubmit")?.addEventListener("click", submitForm);
 qs("#btnCancelForce")?.addEventListener("click", () => {
   hideForceModal();
