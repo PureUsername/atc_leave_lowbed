@@ -746,10 +746,10 @@ const refreshCapacityHints = async () => {
       </tr>
     `;
   const tbody = document.createElement("tbody");
+    const filteredCategoryGroup = getFilteredCategoryGroup();
     const selectedDriver = getDriverById(driverSelect?.value);
     const selectedDriverGroup = selectedDriver ? resolveCategoryGroupId(selectedDriver.category) : "";
-    const filteredCategoryGroup = getFilteredCategoryGroup();
-    const activeCategoryGroup = normalizeCategoryKey(selectedDriverGroup || filteredCategoryGroup);
+    const activeCategoryGroup = normalizeCategoryKey(filteredCategoryGroup || selectedDriverGroup);
     dates.forEach((isoDate) => {
       const count = Number(counts[isoDate] ?? 0);
       const recordedGroupCounts = categoryCounts[isoDate] || { ALL: count };
@@ -758,14 +758,11 @@ const refreshCapacityHints = async () => {
         const normalizedId = normalizeCategoryKey(groupId) || groupId;
         normalizedCounts[normalizedId] = Number(value) || 0;
       });
-      const relevantGroupId = activeCategoryGroup;
       let relevantCount = count;
-      if (relevantGroupId) {
-        relevantCount = normalizedCounts[relevantGroupId] ?? 0;
-        if (relevantCount >= state.maxPerDay) {
-          state.hasFullDay = true;
-        }
-      } else if (Object.values(normalizedCounts).some((value) => Number(value) >= state.maxPerDay)) {
+      if (activeCategoryGroup) {
+        relevantCount = normalizedCounts[activeCategoryGroup] ?? 0;
+      }
+      if (relevantCount >= state.maxPerDay) {
         state.hasFullDay = true;
       }
       const row = document.createElement("tr");
