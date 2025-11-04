@@ -1,4 +1,4 @@
-import { apiGet, apiPost, addDays, fmt, normalizeDriver, qs, toast } from "./common.js";
+import { apiGet, apiPost, addDays, fmt, normalizeDriver, qs, qsa, toast } from "./common.js";
 
 const state = {
   drivers: [],
@@ -21,6 +21,72 @@ const forceModal = qs("#forceModal");
 const calendarUpdateMode =
   document.querySelector("[data-calendar-update-mode]")?.dataset?.calendarUpdateMode || "after_approval";
 let dateRangePicker = null;
+const driverCategoryFilterMeta = document.querySelector('meta[name="driver-category-filter"]') || null;
+
+const normalizeCategoryValue = (value) => (value == null ? "" : String(value)).trim().toLowerCase();
+
+const splitCategoryTokens = (input = "") =>
+  String(input)
+    .split(/[,|]/)
+    .map((token) => normalizeCategoryValue(token))
+    .filter(Boolean);
+
+const collectHiddenCategoryFilters = () => {
+  const tokens = [];
+  const selectFilter = driverSelect?.dataset?.categoryFilter || "";
+  if (selectFilter) {
+    tokens.push(selectFilter);
+  }
+  const metaValue = driverCategoryFilterMeta?.content || "";
+  if (metaValue) {
+    tokens.push(metaValue);
+  }
+  qsa("[data-driver-category-filter]").forEach((node) => {
+    if (!node) {
+      return;
+    }
+    const datasetValue = node.dataset?.categories;
+    if (datasetValue) {
+      tokens.push(datasetValue);
+      return;
+    }
+    if (typeof node.value === "string") {
+      tokens.push(node.value);
+      return;
+    }
+    const textValue = node.textContent;
+    if (typeof textValue === "string") {
+      tokens.push(textValue);
+    }
+  });
+  const params = new URLSearchParams(window.location.search);
+  const queryValues = [
+    ...params.getAll("driver_category"),
+    ...params.getAll("driver_categories"),
+    params.get("driverCategoryFilter") || "",
+  ].filter(Boolean);
+  tokens.push(...queryValues);
+  return Array.from(new Set(tokens.flatMap(splitCategoryTokens)));
+};
+
+const getActiveDriverCategoryFilter = () => {
+  const categories = collectHiddenCategoryFilters();
+  return {
+    categories,
+    hasFilter: categories.length > 0,
+  };
+};
+
+const driverMatchesActiveFilter = (driver, filterState) => {
+  if (!driver || driver.active === false) {
+    return false;
+  }
+  if (!filterState?.hasFilter) {
+    return true;
+  }
+  const category = normalizeCategoryValue(driver.category || "");
+  return category && filterState.categories.includes(category);
+};
 
 const setCapacityMessage = (message) => {
   if (!capacityHintContainer) return;
@@ -479,18 +545,22 @@ const renderDriverOptions = () => {
   placeholder.disabled = true;
   driverSelect.appendChild(placeholder);
   let restoredSelection = false;
-  state.drivers
-    .filter((driver) => driver.active !== false)
-    .forEach((driver) => {
-      const opt = document.createElement("option");
-      opt.value = driver.driver_id || "";
-      const name = driver.display_name || driver.driver_id || "Unnamed Driver";
-      opt.textContent = `${name}${driver.category ? ` (${driver.category})` : ""}`;
-      driverSelect.appendChild(opt);
-      if (!restoredSelection && opt.value && opt.value === previousValue) {
-        restoredSelection = true;
-      }
-    });
+  const filterState = getActiveDriverCategoryFilter();
+  const filteredDrivers = state.drivers.filter((driver) => driverMatchesActiveFilter(driver, filterState));
+  driverSelect.dataset.activeCategoryFilter = filterState.categories.join(",") || "";
+  filteredDrivers.forEach((driver) => {
+    const opt = document.createElement("option");
+    opt.value = driver.driver_id || "";
+    const name = driver.display_name || driver.driver_id || "Unnamed Driver";
+    opt.textContent = `${name}${driver.category ? ` (${driver.category})` : ""}`;
+    driverSelect.appendChild(opt);
+    if (!restoredSelection && opt.value && opt.value === previousValue) {
+      restoredSelection = true;
+    }
+  });
+  if (!filteredDrivers.length && filterState.hasFilter) {
+    placeholder.textContent = "Tiada pemandu tersedia untuk kategori ini";
+  }
   if (restoredSelection) {
     driverSelect.value = previousValue;
     placeholder.selected = false;
