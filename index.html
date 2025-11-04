@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Cuti Pemandu Lori / Driver Leave System</title>
+  <title>Cuti Pemandu Lori</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css" />
   <meta name="atc-api-base" content="https://autocash.my/atc/public" />
@@ -35,38 +35,38 @@
   <div class="max-w-4xl mx-auto p-6 space-y-6">
     <header class="flex flex-col md:flex-row md:items-center md:justify-between gap-2 border-b pb-4">
       <div>
-        <h1 class="text-2xl font-bold">Cuti Pemandu Lori / Driver Leave System1</h1>
+        <h1 class="text-2xl font-bold">Cuti Pemandu Lori</h1>
       </div>
     </header>
 
     <section class="bg-white rounded-2xl shadow p-5">
-      <h2 class="font-semibold mb-4">Mohon Cuti / Apply for Leave</h2>
+      <h2 class="font-semibold mb-4">Mohon Cuti</h2>
       <div class="flex flex-col gap-4 sm:flex-row">
         <div class="w-full sm:flex-1">
-          <label for="driverSelect" class="block text-sm mb-1">Nama Kamu / Your Name</label>
+          <label for="driverSelect" class="block text-sm mb-1">Nama Kamu</label>
           <select id="driverSelect" class="w-full border rounded p-3 text-base">
-            <option value="" selected disabled>Pilih nama / Select your name</option>
+            <option value="" selected disabled>Pilih nama</option>
           </select>
         </div>
         <div class="w-full sm:flex-1">
-          <label for="dateRange" class="block text-sm mb-1">Julat Tarikh / Date Range</label>
+          <label for="dateRange" class="block text-sm mb-1">Julat Tarikh</label>
           <input
             id="dateRange"
             type="text"
             class="w-full border rounded p-3 text-base bg-white"
-            placeholder="Pilih julat tarikh / Select date range"
+            placeholder="Pilih julat tarikh"
             readonly
           />
         </div>
       </div>
 
       <p class="text-sm mt-4">
-        Bilangan pemandu yang telah mengambil cuti pada hari tersebut / Number of employees who have taken leave on that day
+        Bilangan pemandu yang telah mengambil cuti pada hari tersebut
       </p>
       <div id="capacityHints" class="mt-2 overflow-x-auto text-sm"></div>
 
       <div class="mt-4 flex items-center gap-3">
-        <button id="btnSubmit" class="px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700">Hantar / Submit</button>
+        <button id="btnSubmit" class="px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700">Hantar</button>
         <span id="status" class="text-sm text-slate-500"></span>
       </div>
 
@@ -74,30 +74,19 @@
         Maksimum 3 pemandu boleh bercuti setiap hari. Jika hari pilihan penuh, anda boleh pilih untuk
         <strong>paksa 3 hari bekerja berturut-turut</strong> bermula dari tarikh mula anda (hujung minggu tidak dikira).
       </p>
-      <p class="text-xs text-slate-500 mt-4">
-        Maximum 3 drivers can be on leave per day. If a selected day is full, you may opt to
-        <strong>force 3 consecutive working days</strong> starting from your start date (weekends not counted).
-      </p>
-      <p class="text-xs text-slate-500 mt-2" data-calendar-update-mode="after_approval">
-        Kalendar Google hanya akan dikemas kini selepas kelulusan (Langkah 2). / Google Calendar updates only after step 2 approval.
-      </p>
     </section>
   </div>
 
   <div id="forceModal" class="hidden fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center">
     <div class="bg-white rounded-xl shadow-lg p-6 max-w-sm w-full">
-      <h3 class="font-semibold text-lg">Had Harian Tercapai / Daily Limit Reached</h3>
+      <h3 class="font-semibold text-lg">Had Harian Tercapai</h3>
       <p class="mt-2 text-sm">
         Satu atau lebih hari pilihan sudah mencapai jumlah maksimum pemandu bercuti. Adakah anda mahu mohon
         <strong>3 hari bekerja berturut-turut</strong> bermula dari <strong>tarikh mula</strong> anda (tidak termasuk hujung minggu)?
       </p>
-      <p class="mt-2 text-sm">
-        One or more selected days already have the maximum number of drivers on leave. Do you want to apply for
-        <strong>3 consecutive working days</strong> starting from your <strong>start date</strong> (weekends excluded)?
-      </p>
       <div class="mt-4 flex gap-2 justify-end">
-        <button id="btnCancelForce" class="px-3 py-2 rounded bg-slate-200">Batal / Cancel</button>
-        <button id="btnConfirmForce" class="px-3 py-2 rounded bg-blue-600 text-white">Ya, mohon 3 hari / Yes, apply 3 days</button>
+        <button id="btnCancelForce" class="px-3 py-2 rounded bg-slate-200">Batal</button>
+        <button id="btnConfirmForce" class="px-3 py-2 rounded bg-blue-600 text-white">Ya, mohon 3 hari</button>
       </div>
     </div>
   </div>
